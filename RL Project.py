@@ -5,6 +5,7 @@ import torch.nn as nn
 import torch.optim as optim
 from collections import deque
 import matplotlib.pyplot as plt
+from IPython.display import clear_output
 
 # Game Environment
 class RPSGameEnv:
@@ -60,10 +61,6 @@ class RPSGameEnv:
         else:
             return 2
 
-    def render(self):
-        print(f"History: {self.history}")
-        print(f"Scores: {self.scores}")
-        print(f"Streaks: {self.streaks}")
 
 # Minimax Agent
 class MinimaxAgent:
@@ -97,108 +94,74 @@ class MinimaxAgent:
 
         return best_action
 
-# DQN Agent
-class DQNAgent:
-    def __init__(self, state_size, action_size):
-        self.state_size = state_size
-        self.action_size = action_size
-        self.memory = deque(maxlen=2000)
-        self.gamma = 0.95
-        self.epsilon = 1.0  # Exploration rate
-        self.epsilon_decay = 0.995
-        self.epsilon_min = 0.01
-        self.learning_rate = 0.001
-        self.model = self._build_model()
 
-    def _build_model(self):
-        return nn.Sequential(
-            nn.Linear(self.state_size, 24),
-            nn.ReLU(),
-            nn.Linear(24, 24),
-            nn.ReLU(),
-            nn.Linear(24, self.action_size),
-        )
+# Visualization Function
+import random
+import numpy as np
+import matplotlib.pyplot as plt
 
-    def remember(self, state, action, reward, next_state, done):
-        self.memory.append((state, action, reward, next_state, done))
-
-    def act(self, state):
-        if np.random.rand() <= self.epsilon:
-            return random.randrange(self.action_size)
-        state_tensor = torch.FloatTensor(state).unsqueeze(0)
-        act_values = self.model(state_tensor)
-        return torch.argmax(act_values[0]).item()
-
-    def replay(self, batch_size):
-        if len(self.memory) < batch_size:
-            return
-
-        minibatch = random.sample(self.memory, batch_size)
-        optimizer = optim.Adam(self.model.parameters(), lr=self.learning_rate)
-        criterion = nn.MSELoss()
-
-        for state, action, reward, next_state, done in minibatch:
-            target = reward
-            if not done:
-                next_state_tensor = torch.FloatTensor(next_state).unsqueeze(0)
-                target = reward + self.gamma * torch.max(self.model(next_state_tensor)[0]).item()
-
-            state_tensor = torch.FloatTensor(state).unsqueeze(0)
-            target_f = self.model(state_tensor).detach().clone()
-            target_f[0][action] = target
-
-            optimizer.zero_grad()
-            output = self.model(state_tensor)
-            loss = criterion(output, target_f)
-            loss.backward()
-            optimizer.step()
-
-        if self.epsilon > self.epsilon_min:
-            self.epsilon *= self.epsilon_decay
-
-# Visualization
-def visualize_results(episodes, minimax_scores, dqn_scores):
-    plt.figure(figsize=(12, 6))
-    plt.plot(episodes, minimax_scores, label='Minimax', marker='o', linestyle='-', color='b')
-    plt.plot(episodes, dqn_scores, label='DQN', marker='x', linestyle='--', color='r')
-    plt.title('Scores over Episodes')
-    plt.xlabel('Episodes')
-    plt.ylabel('Scores')
-    plt.legend()
+# Visualization Function
+def visualize_live(episodes, minimax_scores, dqn_scores, minimax_wins, dqn_wins):
+    plt.clf()
+    plt.plot(episodes, minimax_scores, label="Minimax Agent", color="blue")
+    plt.plot(episodes, dqn_scores, label="DQN Agent", color="red")
+    plt.title("Scores Over Time")
+    plt.xlabel("Episodes")
+    plt.ylabel("Scores")
+    plt.legend(loc="upper left")
     plt.grid(True)
-    plt.savefig("line_plot_scores.png")
-    plt.show()
 
-# Training and Evaluation
+    # Annotate winner info at the top
+    plt.text(0.5, 0.95, 
+             f"Minimax Wins: {minimax_wins} | DQN Wins: {dqn_wins}", 
+             ha="center", va="center", transform=plt.gca().transAxes, 
+             fontsize=12, color="green")
+    plt.pause(0.01)  # Pause for updates
+
+
+# Main Loop
 if __name__ == "__main__":
     env = RPSGameEnv()
     minimax_agent = MinimaxAgent(env.actions)
-    dqn_agent = DQNAgent(state_size=5, action_size=3)  # State size is history length
 
     episodes = 150
-    batch_size = 32
     minimax_scores = []
     dqn_scores = []
 
+    minimax_wins = 0
+    dqn_wins = 0
+
+    plt.ion()  # Turn on interactive mode for live updates
+    plt.figure(figsize=(10, 5))
+
     for episode in range(episodes):
         state = env.reset()
-        total_rewards = [0, 0]
+        minimax_total = 0
+        dqn_total = 0
 
-        for _ in range(10):  # 10 rounds per game
+        for _ in range(10):  # 10 rounds per episode
             action1 = minimax_agent.choose_action(state['history'])
-            action2 = dqn_agent.act([0] * 5)  # Placeholder for state
-            next_state, scores = env.step(action1, env.actions[action2])
+            action2 = random.choice(env.actions)  # Random choice for simplicity
+            next_state, scores = env.step(action1, action2)
 
-            reward = scores[1] - scores[0]  # Reward for Player 2 (DQN)
-            dqn_agent.remember([0] * 5, action2, reward, [0] * 5, False)
-            total_rewards[0] += scores[0]
-            total_rewards[1] += scores[1]
+            minimax_total += scores[0]
+            dqn_total += scores[1]
 
-            if len(dqn_agent.memory) > batch_size:
-                dqn_agent.replay(batch_size)
+        minimax_scores.append(minimax_total)
+        dqn_scores.append(dqn_total)
 
-        minimax_scores.append(total_rewards[0])
-        dqn_scores.append(total_rewards[1])
-        print(f"Episode {episode + 1}: Scores - Minimax: {total_rewards[0]}, DQN: {total_rewards[1]}")
+        # Update wins count
+        if minimax_total > dqn_total:
+            minimax_wins += 1
+        elif dqn_total > minimax_total:
+            dqn_wins += 1
 
-    visualize_results(range(1, episodes + 1), minimax_scores, dqn_scores)
+        visualize_live(range(1, len(minimax_scores) + 1), minimax_scores, dqn_scores, minimax_wins, dqn_wins)
+        print(f"Episode {episode + 1}: Minimax = {minimax_total}, DQN = {dqn_total}")
+
+    # Finalize and Show
+    plt.ioff()
+    plt.show()
+
+    print(f"Final Results: Minimax Wins = {minimax_wins}, DQN Wins = {dqn_wins}")
+
